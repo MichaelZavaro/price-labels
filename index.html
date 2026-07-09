@@ -1,0 +1,2328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scan &amp; Label</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<style>
+  :root{
+    --bg:#1c1c1e;
+    --panel:#242426;
+    --panel-raised:#2c2c2e;
+    --border:#3a3a3c;
+    --text:#f5f5f0;
+    --text-dim:#9a9a9d;
+    --red:#ff3b30;
+    --red-dim:#7a2622;
+    --blue:#3a86ff;
+    --green:#3ddc84;
+    --amber:#f5b700;
+    --label-bg:#ffffff;
+    --label-text:#0a0a0a;
+    --lbl-font:'Oswald', sans-serif;
+    --lbl-name-size:15px;
+    --lbl-price-size:32px;
+    --lbl-small-size:11px;
+    --lbl-align:left;
+    font-family:'Inter',sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    min-height:100vh;
+    padding:20px 14px 60px;
+  }
+  .wrap{max-width:520px;margin:0 auto;}
+
+  header.app-header{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    margin-bottom:18px;
+    border-bottom:1px dashed var(--border);
+    padding-bottom:14px;
+  }
+  header.app-header h1{
+    font-family:'Oswald',sans-serif;
+    font-weight:700;
+    letter-spacing:0.03em;
+    text-transform:uppercase;
+    font-size:22px;
+    margin:0;
+  }
+  header.app-header h1 span{color:var(--red);}
+  .book-status{font-size:11px;color:var(--text-dim);text-align:right;line-height:1.5;}
+  .book-status b{color:var(--green);}
+  .book-status.empty b{color:var(--red);}
+
+  nav.tabs{display:flex;gap:6px;margin-bottom:18px;}
+  nav.tabs button{
+    flex:1;
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--text-dim);
+    font-family:'Oswald',sans-serif;
+    text-transform:uppercase;
+    letter-spacing:0.03em;
+    font-size:11px;
+    font-weight:600;
+    padding:10px 4px;
+    cursor:pointer;
+    border-radius:3px;
+  }
+  nav.tabs button.active{
+    color:var(--text);
+    border-color:var(--red);
+    background:var(--panel-raised);
+    box-shadow:inset 0 2px 0 var(--red);
+  }
+
+  .view{display:none;}
+  .view.active{display:block;}
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:16px;
+    margin-bottom:16px;
+  }
+  .panel h2{
+    font-family:'Oswald',sans-serif;
+    font-size:14px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    margin:0 0 12px;
+    color:var(--text-dim);
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .panel h2::before{content:"";width:6px;height:6px;background:var(--red);display:inline-block;border-radius:50%;}
+
+  /* Scanner */
+  .scan-frame{
+    position:relative;
+    background:#000;
+    border:1px solid var(--border);
+    border-radius:6px;
+    overflow:hidden;
+    aspect-ratio:4/3;
+    margin-bottom:12px;
+  }
+  #scanVideo, .scan-frame video, .scan-frame canvas{
+    width:100%!important;height:100%!important;object-fit:cover;position:absolute;top:0;left:0;
+  }
+  .scan-frame .laser{
+    position:absolute;left:6%;right:6%;height:2px;
+    background:var(--red);
+    box-shadow:0 0 8px 2px var(--red);
+    top:50%;
+    animation:sweep 1.8s ease-in-out infinite;
+    z-index:5;
+  }
+  @keyframes sweep{
+    0%,100%{top:18%;}
+    50%{top:82%;}
+  }
+  .scan-frame .frame-corners{position:absolute;inset:0;pointer-events:none;z-index:4;}
+  .scan-frame .frame-corners span{
+    position:absolute;width:22px;height:22px;border:2px solid var(--red);opacity:.85;
+  }
+  .scan-frame .frame-corners span:nth-child(1){top:8%;left:6%;border-right:none;border-bottom:none;}
+  .scan-frame .frame-corners span:nth-child(2){top:8%;right:6%;border-left:none;border-bottom:none;}
+  .scan-frame .frame-corners span:nth-child(3){bottom:8%;left:6%;border-right:none;border-top:none;}
+  .scan-frame .frame-corners span:nth-child(4){bottom:8%;right:6%;border-left:none;border-top:none;}
+  .scan-frame .placeholder{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:var(--text-dim);font-size:13px;text-align:center;padding:20px;z-index:2;
+  }
+
+  .btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+  button.primary, button.secondary, button.danger, button.toggle{
+    font-family:'Inter',sans-serif;
+    font-weight:600;
+    font-size:13px;
+    padding:10px 16px;
+    border-radius:4px;
+    cursor:pointer;
+    border:1px solid transparent;
+  }
+  button.primary{background:var(--red);color:#fff;}
+  button.primary:hover{background:#e6352b;}
+  button.secondary{background:transparent;border-color:var(--border);color:var(--text);}
+  button.secondary:hover{border-color:var(--blue);color:var(--blue);}
+  button.danger{background:transparent;border-color:var(--red-dim);color:var(--red);}
+  button.danger:hover{background:var(--red-dim);}
+  button:disabled{opacity:.4;cursor:not-allowed;}
+
+  button.toggle{
+    flex:1;
+    background:var(--panel-raised);
+    border:1px solid var(--border);
+    color:var(--text-dim);
+    text-align:left;
+    position:relative;
+    padding:10px 14px 10px 40px;
+  }
+  button.toggle::before{
+    content:"";
+    position:absolute;left:12px;top:50%;transform:translateY(-50%);
+    width:16px;height:16px;border-radius:50%;
+    background:var(--border);
+    transition:background .15s;
+  }
+  button.toggle.on{color:var(--text);border-color:var(--green);}
+  button.toggle.on::before{background:var(--green);}
+  button.toggle .sub{display:block;font-size:10px;color:var(--text-dim);font-weight:400;margin-top:1px;}
+
+  .manual-row{display:flex;gap:8px;margin-top:4px;}
+  .manual-row input{
+    flex:1;background:var(--panel-raised);border:1px solid var(--border);color:var(--text);
+    padding:10px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:14px;
+  }
+  .hint{font-size:11px;color:var(--text-dim);margin-top:8px;line-height:1.5;}
+
+  /* Label */
+  .label-card{
+    background:var(--label-bg);
+    color:var(--label-text);
+    border-radius:2px;
+    padding:12px 14px;
+    font-family:var(--lbl-font);
+    position:relative;
+    text-align:var(--lbl-align);
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    overflow:hidden;
+    box-sizing:border-box;
+  }
+  #labelPrintArea{
+    width:100%;
+    max-width:340px;
+    margin:0 auto;
+    aspect-ratio: var(--lbl-w, 2.5) / var(--lbl-h, 1.5);
+  }
+  .label-name{font-weight:600;font-size:var(--lbl-name-size);text-transform:uppercase;letter-spacing:.02em;margin:0 0 2px;line-height:1.1;}
+  .label-upc{font-size:var(--lbl-small-size);color:#555;letter-spacing:.05em;margin-bottom:2px;line-height:1.2;}
+  .label-barcode{margin:6px 0 4px;text-align:center;height:36px;}
+  .label-barcode svg{max-width:100%;height:100%;width:auto;display:block;margin:0 auto;}
+  .label-price{font-weight:700;font-size:var(--lbl-price-size);margin:4px 0 2px;line-height:1.05;}
+  .label-plus{
+    display:inline-block;
+    font-size:var(--lbl-small-size);
+    font-weight:600;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:#fff;
+    background:#111;
+    padding:3px 10px;
+    border-radius:2px;
+  }
+  .label-plus.hidden{display:none;}
+
+  .edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;}
+  .edit-grid label{font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em;}
+  .edit-grid input{
+    width:100%;background:var(--panel-raised);border:1px solid var(--border);color:var(--text);
+    padding:8px;border-radius:4px;font-size:13px;font-family:'JetBrains Mono',monospace;
+  }
+  .edit-grid .full{grid-column:1/-1;}
+  .dept-readout{font-size:12px;color:var(--text-dim);margin-top:2px;}
+  .dept-readout b{color:var(--text);}
+
+  /* Price book view */
+  .upload-zone{
+    border:1px dashed var(--border);
+    border-radius:6px;
+    padding:24px 14px;
+    text-align:center;
+    color:var(--text-dim);
+    font-size:13px;
+    cursor:pointer;
+    margin-bottom:10px;
+  }
+  .upload-zone:hover{border-color:var(--blue);color:var(--blue);}
+  .upload-zone input{display:none;}
+
+  table.map-table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px;}
+  table.map-table th, table.map-table td{border:1px solid var(--border);padding:6px 8px;text-align:left;}
+  table.map-table th{background:var(--panel-raised);color:var(--text-dim);font-weight:600;font-size:11px;text-transform:uppercase;}
+  table.map-table select{
+    background:var(--panel-raised);border:1px solid var(--border);color:var(--text);
+    padding:4px;border-radius:3px;font-size:12px;width:100%;
+  }
+  .preview-rows{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-dim);max-height:120px;overflow:auto;border:1px solid var(--border);border-radius:4px;padding:8px;margin-bottom:12px;}
+  .preview-rows div{white-space:nowrap;}
+
+  .book-summary{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:10px;}
+  .book-summary b{color:var(--green);}
+
+  select.mode-select{
+    background:var(--panel-raised);border:1px solid var(--border);color:var(--text);
+    padding:8px;border-radius:4px;font-size:12px;width:100%;
+    margin-bottom:10px;
+  }
+  .kw-input{
+    width:100%;background:var(--panel-raised);border:1px solid var(--border);color:var(--text);
+    padding:10px;border-radius:4px;font-size:13px;font-family:'JetBrains Mono',monospace;
+    margin-bottom:10px;
+  }
+
+  /* Search dropdown (manual entry + queue search) */
+  .search-wrap{position:relative;}
+  .search-results{
+    position:absolute;top:100%;left:0;right:0;
+    background:var(--panel-raised);border:1px solid var(--border);border-top:none;
+    border-radius:0 0 4px 4px;max-height:240px;overflow:auto;z-index:20;
+  }
+  .search-results.hidden{display:none;}
+  .search-result-item{
+    padding:9px 10px;font-size:12px;border-bottom:1px solid var(--border);
+    cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;
+  }
+  .search-result-item:last-child{border-bottom:none;}
+  .search-result-item:hover{background:var(--panel);}
+  .search-result-item .sr-name{font-weight:600;}
+  .search-result-item .sr-upc{font-family:'JetBrains Mono',monospace;color:var(--text-dim);font-size:10px;margin-top:1px;}
+  .search-result-item .sr-price{font-family:'JetBrains Mono',monospace;color:var(--green);white-space:nowrap;}
+
+  /* Tab badge */
+  nav.tabs button .badge{
+    display:inline-block;background:var(--red);color:#fff;border-radius:10px;
+    padding:1px 6px;font-size:10px;margin-left:5px;vertical-align:middle;
+  }
+
+  /* Queue list */
+  .queue-item{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);}
+  .queue-item:last-child{border-bottom:none;}
+  .queue-item .qi-info{flex:1;min-width:0;}
+  .queue-item .qi-name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .queue-item .qi-meta{font-size:11px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;margin-top:2px;}
+  .qty-stepper{display:flex;align-items:center;gap:6px;}
+  .qty-stepper button{
+    width:24px;height:24px;padding:0;background:var(--panel-raised);border:1px solid var(--border);
+    color:var(--text);border-radius:3px;cursor:pointer;font-size:14px;line-height:1;
+  }
+  .qty-stepper span{min-width:16px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:13px;}
+  .qi-remove{background:transparent;border:none;color:var(--red);cursor:pointer;font-size:18px;padding:0 2px;line-height:1;}
+
+  .qty-inline{display:flex;align-items:center;gap:6px;}
+  .qty-inline input{
+    width:56px;background:var(--panel-raised);border:1px solid var(--border);color:var(--text);
+    padding:8px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:13px;
+  }
+  .qty-inline label{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;}
+
+  .screen-hidden{position:absolute;left:-9999px;top:-9999px;}
+
+  @media print{
+    body *{visibility:hidden;}
+    #labelPrintArea, #labelPrintArea *{visibility:visible;}
+    #labelPrintArea{
+      position:fixed;top:0;left:0;width:2.5in;
+      padding:10px 12px;margin:0;border:none;
+    }
+    body.printing-queue #labelPrintArea{visibility:hidden;}
+    body.printing-queue #queuePrintArea, body.printing-queue #queuePrintArea *{visibility:visible;}
+    body.printing-queue #queuePrintArea{position:static;left:0;top:0;}
+    .queue-print-label{width:2.5in;padding:10px 12px;page-break-after:always;}
+    .queue-print-label:last-child{page-break-after:auto;}
+    @page{size:2.5in 1.5in;margin:0;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="app-header">
+    <h1>SCAN<span>&amp;</span>LABEL</h1>
+    <div class="book-status empty" id="bookStatus">no price book loaded</div>
+  </header>
+
+  <nav class="tabs">
+    <button class="active" data-view="scan">Scan</button>
+    <button data-view="queue">Queue<span class="badge" id="queueBadge" style="display:none;">0</span></button>
+    <button data-view="book">Price Book</button>
+  </nav>
+
+  <!-- SCAN VIEW -->
+  <section class="view active" id="view-scan">
+
+    <div class="panel">
+      <h2>Camera</h2>
+      <div class="scan-frame" id="scanFrame">
+        <div class="placeholder" id="scanPlaceholder">Tap "Start Camera" to scan a barcode.<br>Camera access depends on your browser's permissions for this page.</div>
+      </div>
+      <div class="btn-row">
+        <button class="primary" id="btnStartScan">Start Camera</button>
+        <button class="secondary" id="btnStopScan" disabled>Stop</button>
+      </div>
+      <div class="hint" id="scanHint"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Manual Entry / Search</h2>
+      <div class="search-wrap">
+        <div class="manual-row">
+          <input type="text" id="manualUpc" placeholder="Type a UPC or product name" autocomplete="off">
+          <button class="primary" id="btnManualLookup">Look Up</button>
+        </div>
+        <div class="search-results hidden" id="manualSearchResults"></div>
+      </div>
+      <div class="hint">Type 2+ characters to search by name or UPC and pick a match, or type the full UPC and press Enter / Look Up.</div>
+    </div>
+
+    <div class="panel" id="labelPanel" style="display:none;">
+      <h2>Label</h2>
+      <div class="label-card" id="labelPrintArea">
+        <div class="label-name" id="lblName">Product Name</div>
+        <div class="label-upc" id="lblUpc">000000000000</div>
+        <div class="label-barcode"><svg id="lblBarcodeSvg"></svg></div>
+        <div class="label-price" id="lblPrice">$0.00</div>
+        <div class="label-plus hidden" id="lblPlus">Plus Tax</div>
+      </div>
+
+      <div class="edit-grid">
+        <div class="full">
+          <label>Product Name</label>
+          <input type="text" id="editName" style="font-family:'Inter',sans-serif;">
+        </div>
+        <div>
+          <label>Price ($)</label>
+          <input type="number" step="0.01" id="editPrice">
+        </div>
+        <div>
+          <label>Stock Qty</label>
+          <input type="number" step="1" id="editQty">
+        </div>
+        <div class="full">
+          <label>Department</label>
+          <select id="editDept" class="mode-select" style="margin-bottom:0;"></select>
+        </div>
+        <div class="full" id="newDeptRow" style="display:none;">
+          <div class="manual-row">
+            <input type="text" id="newDeptInline" placeholder="New department name">
+            <button class="secondary" type="button" id="btnAddDeptInline">Add</button>
+          </div>
+        </div>
+        <div>
+          <label>Cost ($)</label>
+          <input type="number" step="0.01" id="editCost">
+        </div>
+        <div>
+          <label>Cost Basis</label>
+          <select id="editCostBasis" class="mode-select" style="margin-bottom:0;">
+            <option value="unit">Per Unit</option>
+            <option value="pack">Per Pack</option>
+          </select>
+        </div>
+        <div class="full" id="editPackSizeRow" style="display:none;">
+          <label>Units per Pack</label>
+          <input type="number" step="1" min="1" id="editPackSize" value="1">
+        </div>
+      </div>
+
+      <div class="full" style="font-size:12px;background:var(--panel-raised);border:1px solid var(--border);border-radius:4px;padding:10px 12px;margin-top:10px;">
+        <div style="color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;font-size:10px;margin-bottom:6px;">Back office only &mdash; never printed on the label</div>
+        <div style="color:var(--text);"><b>Total Cost:</b> <span id="statTotalCost">$0.00</span></div>
+        <div style="color:var(--text);margin-top:2px;"><b>Margin:</b> <span id="statMargin">$0.00 (0.0%)</span></div>
+      </div>
+
+      <div class="edit-grid" style="margin-top:12px;">
+        <div>
+          <label>Taxable</label>
+          <select id="editTaxable" class="mode-select" style="margin-bottom:0;">
+            <option value="yes">Taxable</option>
+            <option value="no">Not Taxable</option>
+          </select>
+        </div>
+        <div>
+          <label>CRV</label>
+          <select id="editCrvType" class="mode-select" style="margin-bottom:0;"></select>
+        </div>
+        <div class="full" id="newCrvRow" style="display:none;">
+          <div class="manual-row">
+            <input type="number" step="0.01" min="0" id="newCrvInline" placeholder="0.05">
+            <button class="secondary" type="button" id="btnAddCrvInline">Add</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="btn-row" style="margin-top:12px;">
+        <button class="secondary" id="btnSaveInventory">Save to Inventory</button>
+        <button class="danger" id="btnDeleteInventory" style="display:none;">Delete from Inventory</button>
+      </div>
+      <div class="btn-row" id="deleteInvConfirmRow" style="display:none;margin-top:8px;">
+        <span class="hint" style="margin:0;flex-basis:100%;">Delete this item from your price book?</span>
+        <button class="danger" id="btnDeleteInvConfirm">Yes, Delete</button>
+        <button class="secondary" id="btnDeleteInvCancel">Cancel</button>
+      </div>
+      <div class="hint" id="invSaveHint"></div>
+
+      <div class="btn-row" style="margin-top:14px;align-items:center;">
+        <div class="qty-inline">
+          <label for="queueQty">Copies</label>
+          <input type="number" id="queueQty" value="1" min="1">
+        </div>
+        <button class="secondary" id="btnAddQueue">Add to Queue</button>
+        <button class="primary" id="btnPrint">Print Label</button>
+        <button class="secondary" id="btnRescan">Scan Next</button>
+      </div>
+    </div>
+
+    <div class="panel" id="notFoundPanel" style="display:none;">
+      <h2 style="color:var(--red);">Not Found</h2>
+      <div class="hint" style="margin-top:0;">UPC <b id="nfUpc"></b> isn't in your price book. You can enter details manually below and print anyway.</div>
+      <button class="secondary" id="btnManualCreate" style="margin-top:10px;">Enter Details Manually</button>
+    </div>
+
+  </section>
+
+  <!-- PRICE BOOK VIEW -->
+  <section class="view" id="view-book">
+
+    <div class="panel">
+      <h2>Current Book</h2>
+      <div class="book-summary">
+        <span id="bookSummaryText">No price book loaded yet.</span>
+      </div>
+      <div class="btn-row" id="startBookRow" style="display:none;">
+        <button class="secondary" id="btnStartNewBook">+ Start a New Price Book</button>
+      </div>
+      <div class="hint" id="startBookHint" style="display:none;margin-top:0;">No file needed &mdash; add items one at a time from the Scan tab, then export or upload a file later if you want.</div>
+      <div class="btn-row" id="clearBookRow">
+        <button class="danger" id="btnClearBook">Clear Price Book</button>
+      </div>
+      <div class="btn-row" id="clearBookConfirmRow" style="display:none;">
+        <span class="hint" style="margin:0;flex-basis:100%;">This can't be undone. Clear the loaded price book?</span>
+        <button class="danger" id="btnClearBookConfirm">Yes, Clear It</button>
+        <button class="secondary" id="btnClearBookCancel">Cancel</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>View / Search Price Book</h2>
+      <input type="text" class="kw-input" id="viewSearchInput" style="margin-bottom:10px;" placeholder="Search by name, UPC, or department" autocomplete="off">
+      <div id="viewBookList"></div>
+      <div class="hint" id="viewBookCount" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Pending Changes</h2>
+      <div class="hint" style="margin-top:0;">Items you add, edit, or delete from the Scan tab are logged here until you export them.</div>
+      <div id="invChangesEmpty" class="hint" style="margin-top:0;">No unexported changes yet.</div>
+      <div id="invChangesList"></div>
+      <div class="btn-row" id="invChangesActions" style="display:none;margin-top:12px;">
+        <button class="primary" id="btnDownloadChangesCsv">Download CSV</button>
+        <button class="primary" id="btnDownloadChangesXlsx">Download Excel</button>
+        <button class="secondary" id="btnClearChanges">Clear Change Log</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Upload Price Book</h2>
+      <label class="upload-zone" id="uploadZone">
+        Drop or tap to choose a CSV or Excel (.xlsx) file<br>
+        <span style="font-size:11px;">UPC, Name, and Price are required. Department, Taxable, and CRV columns are optional.</span>
+        <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+      </label>
+      <div class="hint" id="uploadHint"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Departments</h2>
+      <div class="hint" style="margin-top:0;">Manage the department list offered when tagging items on the Scan tab.</div>
+      <div class="manual-row">
+        <input type="text" id="newDeptInput" placeholder="New department name">
+        <button class="primary" id="btnAddDept">Add</button>
+      </div>
+      <div id="deptList" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="panel">
+      <h2>CRV Amounts</h2>
+      <div class="hint" style="margin-top:0;">Manage the CRV dollar amounts offered when tagging items (e.g. .05, .10, .25).</div>
+      <div class="manual-row">
+        <input type="number" step="0.01" min="0" id="newCrvTypeInput" placeholder="0.05">
+        <button class="primary" id="btnAddCrvType">Add</button>
+      </div>
+      <div id="crvTypeList" style="margin-top:10px;"></div>
+      <label style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;display:block;margin:12px 0 4px;">Default amount for department auto-detect</label>
+      <select class="mode-select" id="defaultCrvAmount" style="margin-bottom:0;"></select>
+    </div>
+
+    <div class="panel">
+      <h2>CRV Auto-Detect</h2>
+      <div class="hint" style="margin-top:0;">If an item has no CRV amount set, we'll apply the default CRV amount above automatically when its Department matches one of these words (comma separated).</div>
+      <input type="text" class="kw-input" id="crvKeywords" placeholder="beverage, soda, water, juice, beer, bottle, can">
+      <button class="secondary" id="btnSaveKeywords">Save CRV Rules</button>
+    </div>
+
+    <div class="panel">
+      <h2>Label Settings</h2>
+      <div class="hint" style="margin-top:0;">Changes apply to every label you print, including the queue.</div>
+      <div class="edit-grid" style="margin-top:0;">
+        <div class="full">
+          <label>Label Size Preset</label>
+          <select id="lsPreset" class="mode-select" style="margin-bottom:0;">
+            <option value="">-- choose a preset --</option>
+            <option value="1,2">1in &times; 2in</option>
+            <option value="1,3">1in &times; 3in</option>
+            <option value="2,2">2in &times; 2in</option>
+            <option value="2.5,1.5">2.5in &times; 1.5in (default)</option>
+            <option value="3,2">3in &times; 2in</option>
+            <option value="4,6">4in &times; 6in</option>
+          </select>
+        </div>
+        <div>
+          <label>Label Width (in)</label>
+          <input type="number" id="lsWidth" min="0.5" max="8" step="0.1" value="2.5">
+        </div>
+        <div>
+          <label>Label Height (in)</label>
+          <input type="number" id="lsHeight" min="0.5" max="8" step="0.1" value="1.5">
+        </div>
+        <div class="full" style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="lsAutoFit" style="width:auto;" checked>
+          <label style="margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);">Automatically size &amp; center text to fill the label</label>
+        </div>
+        <div class="full">
+          <label>Font</label>
+          <select class="mode-select" id="lsFont" style="margin-bottom:0;">
+            <option value="'Oswald', sans-serif">Oswald (Condensed)</option>
+            <option value="'Inter', sans-serif">Inter (Modern Sans)</option>
+            <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
+            <option value="Arial, sans-serif">Arial</option>
+            <option value="Georgia, serif">Georgia (Serif)</option>
+            <option value="'Times New Roman', serif">Times New Roman</option>
+            <option value="'Courier New', monospace">Courier New</option>
+            <option value="Verdana, sans-serif">Verdana</option>
+          </select>
+        </div>
+        <div>
+          <label>Name Size (px)</label>
+          <input type="number" id="lsNameSize" min="6" max="72" value="15">
+        </div>
+        <div>
+          <label>Price Size (px)</label>
+          <input type="number" id="lsPriceSize" min="8" max="120" value="32">
+        </div>
+        <div>
+          <label>Small Text Size (px)</label>
+          <input type="number" id="lsSmallSize" min="5" max="40" value="11">
+        </div>
+        <div>
+          <label>Alignment</label>
+          <select id="lsAlign" class="mode-select" style="margin-bottom:0;">
+            <option value="left">Left</option>
+            <option value="center">Center</option>
+            <option value="right">Right</option>
+          </select>
+        </div>
+        <div class="full">
+          <label>Barcode Placement</label>
+          <select id="lsBarcodePos" class="mode-select" style="margin-bottom:0;">
+            <option value="middle">Between name and price (default)</option>
+            <option value="top">Above product name</option>
+            <option value="bottom">Below price</option>
+            <option value="hidden">Hide barcode</option>
+          </select>
+        </div>
+        <div class="full" style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="lsShowUpc" style="width:auto;" checked>
+          <label style="margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);">Show UPC number as text (readable line under the barcode)</label>
+        </div>
+      </div>
+      <div class="hint" style="margin-top:10px;">The barcode is generated as UPC/EAN when the code is 8, 12, or 13 digits, so it scans on a standard retail scanner. It automatically falls back to CODE128 for anything else.</div>
+      <div class="btn-row" style="margin-top:12px;">
+        <button class="secondary" id="btnSaveLabelSettings">Save Label Settings</button>
+        <button class="secondary" id="btnResetLabelSettings">Reset to Default</button>
+      </div>
+    </div>
+
+    <div class="panel" id="mappingPanel" style="display:none;">
+      <h2>Confirm Columns</h2>
+      <div class="hint" style="margin-top:0;">We guessed which column is which — check them before saving. Leave a field as "-- none --" if your file doesn't have it.</div>
+      <table class="map-table" id="mapTable"></table>
+      <label style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:4px;">If no Taxable column, default new items to</label>
+      <select class="mode-select" id="mapDefaultTaxable">
+        <option value="true">Taxable ("Plus Tax" shows)</option>
+        <option value="false">Not taxable</option>
+      </select>
+      <div class="hint" style="margin-top:0;">Preview (first 5 rows):</div>
+      <div class="preview-rows" id="previewRows"></div>
+      <div class="btn-row">
+        <button class="primary" id="btnConfirmMap">Save Price Book</button>
+        <button class="secondary" id="btnCancelMap">Cancel</button>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- QUEUE VIEW -->
+  <section class="view" id="view-queue">
+
+    <div class="panel">
+      <h2>Search Price Book</h2>
+      <div class="search-wrap">
+        <input type="text" id="queueSearchInput" class="kw-input" style="margin-bottom:0;" placeholder="Search by name or UPC, tap a result to queue it" autocomplete="off">
+        <div class="search-results hidden" id="queueSearchResults"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Print Queue</h2>
+      <div id="queueEmpty" class="hint" style="margin-top:0;">Nothing queued yet. Search above, or use "Add to Queue" after looking up an item on the Scan tab.</div>
+      <div id="queueList"></div>
+      <div class="btn-row" id="queueActionsRow" style="display:none;margin-top:12px;">
+        <button class="primary" id="btnPrintQueue">Print All Labels</button>
+        <button class="danger" id="btnClearQueue">Clear Queue</button>
+      </div>
+    </div>
+
+  </section>
+
+</div>
+
+<div id="queuePrintArea" class="screen-hidden"></div>
+
+<script>
+(function(){
+  // Works inside Claude's artifact preview (window.storage) and, just as
+  // importantly, as a standalone page saved/opened directly on a phone or
+  // any other browser, where window.storage doesn't exist — falls back to
+  // this device's own localStorage so data still persists between visits.
+  const storage = (window.storage && typeof window.storage.get === 'function') ? window.storage : {
+    async get(key){
+      try{
+        const raw = localStorage.getItem(key);
+        if(raw === null) return null;
+        return {key: key, value: raw};
+      }catch(e){ return null; }
+    },
+    async set(key, value){
+      try{
+        localStorage.setItem(key, value);
+        return {key: key, value: value};
+      }catch(e){ return null; }
+    },
+    async delete(key){
+      try{
+        localStorage.removeItem(key);
+        return {key: key, deleted: true};
+      }catch(e){ return null; }
+    }
+  };
+
+  const STORAGE_KEY = 'pricebook:v2';
+  const DEFAULT_CRV_KEYWORDS = ['beverage','beverages','soda','water','juice','beer','bottle','can','drink','drinks'];
+  const DEFAULT_CRV_TYPES = [0.05, 0.10, 0.20, 0.30, 0.60, 0.90, 1.20];
+
+  let priceBookMap = {};   // normalizedUpc -> {upc,name,price,department,taxable(bool|null),crv(number|null)}
+  let bookMeta = null;     // {filename, rowCount, uploadedAt, defaultTaxable}
+  let crvKeywords = DEFAULT_CRV_KEYWORDS.slice();
+  let departments = [];    // array of department name strings
+  let crvTypes = DEFAULT_CRV_TYPES.slice(); // array of CRV dollar amounts
+  let defaultCrvAmount = DEFAULT_CRV_TYPES[0]; // used when department auto-detect triggers CRV
+  let pendingParse = null; // {headers, rows, filename}
+  let quaggaActive = false;
+  let currentProduct = null;
+  let taxOn = false;
+  let crvOn = 0; // current CRV dollar amount for the label being edited (0 = none)
+  let printQueue = []; // {upc,name,price,taxOn,crvOn,qty}
+
+  const DEFAULT_LABEL_SETTINGS = {
+    font: "'Oswald', sans-serif",
+    nameSize: 15,
+    priceSize: 32,
+    smallSize: 11,
+    align: 'center',
+    barcodePos: 'middle',
+    showUpc: true,
+    autoFit: true,
+    width: 2.5,
+    height: 1.5
+  };
+  let labelSettings = Object.assign({}, DEFAULT_LABEL_SETTINGS);
+
+  let pendingChanges = {}; // normalizedUpc -> {upc,name,price,department,taxable,crv,quantity,action,changedAt}
+  let currentProductIsNew = false;
+
+  // ---------- storage helpers ----------
+  async function loadBook(){
+    try{
+      const res = await storage.get(STORAGE_KEY, false);
+      if(res && res.value){
+        const data = JSON.parse(res.value);
+        priceBookMap = data.map || {};
+        bookMeta = data.meta || null;
+        if(data.crvKeywords && data.crvKeywords.length) crvKeywords = data.crvKeywords;
+        if(data.departments) departments = data.departments;
+        if(data.crvTypes && data.crvTypes.length) crvTypes = data.crvTypes;
+        if(data.defaultCrvAmount !== undefined && data.defaultCrvAmount !== null) defaultCrvAmount = data.defaultCrvAmount;
+      }
+    }catch(e){ /* nothing saved yet */ }
+    document.getElementById('crvKeywords').value = crvKeywords.join(', ');
+    renderBookStatus();
+    renderDepartmentList();
+    renderCrvTypeList();
+  }
+
+  async function saveBook(){
+    const payload = JSON.stringify({
+      map: priceBookMap,
+      meta: bookMeta,
+      crvKeywords: crvKeywords,
+      departments: departments,
+      crvTypes: crvTypes,
+      defaultCrvAmount: defaultCrvAmount
+    });
+    try{
+      await storage.set(STORAGE_KEY, payload, false);
+    }catch(e){
+      document.getElementById('uploadHint').textContent = 'Could not save price book: ' + e.message;
+    }
+  }
+
+  async function clearBook(){
+    priceBookMap = {};
+    bookMeta = null;
+    try{ await storage.delete(STORAGE_KEY, false); }catch(e){}
+    renderBookStatus();
+  }
+
+  // ---------- label settings ----------
+  async function loadLabelSettings(){
+    try{
+      const res = await storage.get('pricebook:labelSettings', false);
+      if(res && res.value){
+        labelSettings = Object.assign({}, DEFAULT_LABEL_SETTINGS, JSON.parse(res.value));
+      }
+    }catch(e){ /* nothing saved yet */ }
+    populateLabelSettingsForm();
+    applyLabelSettings();
+  }
+
+  async function saveLabelSettingsToStorage(){
+    try{
+      await storage.set('pricebook:labelSettings', JSON.stringify(labelSettings), false);
+    }catch(e){ /* non-fatal */ }
+  }
+
+  function populateLabelSettingsForm(){
+    document.getElementById('lsFont').value = labelSettings.font;
+    document.getElementById('lsNameSize').value = labelSettings.nameSize;
+    document.getElementById('lsPriceSize').value = labelSettings.priceSize;
+    document.getElementById('lsSmallSize').value = labelSettings.smallSize;
+    document.getElementById('lsAlign').value = labelSettings.align;
+    document.getElementById('lsBarcodePos').value = labelSettings.barcodePos;
+    document.getElementById('lsShowUpc').checked = labelSettings.showUpc;
+    document.getElementById('lsAutoFit').checked = labelSettings.autoFit;
+    document.getElementById('lsWidth').value = labelSettings.width;
+    document.getElementById('lsHeight').value = labelSettings.height;
+    document.getElementById('lsPreset').value = '';
+    updateAutoFitFieldStates();
+  }
+
+  function updateAutoFitFieldStates(){
+    const autoFit = document.getElementById('lsAutoFit').checked;
+    ['lsNameSize','lsPriceSize','lsSmallSize'].forEach(id=>{
+      document.getElementById(id).disabled = autoFit;
+    });
+  }
+  document.getElementById('lsAutoFit').addEventListener('change', updateAutoFitFieldStates);
+
+  document.getElementById('lsPreset').addEventListener('change', e=>{
+    const val = e.target.value;
+    if(!val) return;
+    const parts = val.split(',').map(Number);
+    document.getElementById('lsWidth').value = parts[0];
+    document.getElementById('lsHeight').value = parts[1];
+  });
+
+  function applyLabelSettings(){
+    const root = document.documentElement.style;
+    root.setProperty('--lbl-font', labelSettings.font);
+    root.setProperty('--lbl-name-size', labelSettings.nameSize + 'px');
+    root.setProperty('--lbl-price-size', labelSettings.priceSize + 'px');
+    root.setProperty('--lbl-small-size', labelSettings.smallSize + 'px');
+    root.setProperty('--lbl-align', labelSettings.align);
+    root.setProperty('--lbl-w', labelSettings.width || 2.5);
+    root.setProperty('--lbl-h', labelSettings.height || 1.5);
+
+    const upcEl = document.getElementById('lblUpc');
+    if(upcEl) upcEl.style.display = labelSettings.showUpc ? '' : 'none';
+
+    reorderLabelCard(document.getElementById('labelPrintArea'));
+    applyPageSizeStyle();
+    recomputeLabel();
+  }
+
+  function reorderLabelCard(cardEl){
+    if(!cardEl) return;
+    const nameEl = cardEl.querySelector('.label-name');
+    const barcodeEl = cardEl.querySelector('.label-barcode');
+    const priceEl = cardEl.querySelector('.label-price');
+    if(!nameEl || !barcodeEl || !priceEl) return;
+    if(labelSettings.barcodePos === 'hidden'){
+      barcodeEl.style.display = 'none';
+      return;
+    }
+    barcodeEl.style.display = '';
+    if(labelSettings.barcodePos === 'top'){
+      cardEl.insertBefore(barcodeEl, nameEl);
+    } else if(labelSettings.barcodePos === 'bottom'){
+      cardEl.appendChild(barcodeEl);
+    } else {
+      cardEl.insertBefore(barcodeEl, priceEl);
+    }
+  }
+
+  function applyPageSizeStyle(){
+    let styleEl = document.getElementById('dynamicPageSize');
+    if(!styleEl){
+      styleEl = document.createElement('style');
+      styleEl.id = 'dynamicPageSize';
+      document.head.appendChild(styleEl);
+    }
+    const w = labelSettings.width || 2.5;
+    const h = labelSettings.height || 1.5;
+    styleEl.textContent = '@media print{ @page{ size:' + w + 'in ' + h + 'in; margin:0; } ' +
+      '#labelPrintArea{ width:' + w + 'in; height:' + h + 'in; max-width:none; aspect-ratio:auto; } ' +
+      '.queue-print-label{ width:' + w + 'in; height:' + h + 'in; } }';
+  }
+
+  // ---------- barcode symbology + auto-fit ----------
+  function getBarcodeFormat(code){
+    const n = normalizeUpc(code);
+    if(n.length === 12) return 'UPC';
+    if(n.length === 13) return 'EAN13';
+    if(n.length === 8) return 'EAN8';
+    return 'CODE128';
+  }
+
+  function renderBarcodeInto(svg, code){
+    if(!svg) return;
+    if(typeof JsBarcode === 'undefined' || !code){ svg.innerHTML = ''; return; }
+    const format = getBarcodeFormat(code);
+    // Render at a generous fixed native size; CSS scales the wrapper afterward.
+    // Since it's SVG, this scaling stays crisp and preserves the bar-width ratios (still scannable).
+    const opts = {format:format, displayValue:false, height:50, margin:0, width:1.6};
+    let ok = true;
+    try{
+      JsBarcode(svg, code, opts);
+    }catch(e){
+      try{
+        JsBarcode(svg, code, Object.assign({}, opts, {format:'CODE128'}));
+      }catch(e2){
+        svg.innerHTML = '';
+        ok = false;
+      }
+    }
+    if(ok){
+      // JsBarcode doesn't set a viewBox, so without one the drawing can't
+      // rescale when CSS resizes the SVG box (it just gets clipped instead).
+      const w = svg.getAttribute('width');
+      const h = svg.getAttribute('height');
+      if(w && h){
+        svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+        svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      }
+    }
+  }
+
+  function autoFitCard(cardEl){
+    if(!cardEl) return;
+    const nameEl = cardEl.querySelector('.label-name');
+    const barcodeWrap = cardEl.querySelector('.label-barcode');
+    if(!labelSettings.autoFit){
+      cardEl.style.removeProperty('--lbl-name-size');
+      cardEl.style.removeProperty('--lbl-price-size');
+      cardEl.style.removeProperty('--lbl-small-size');
+      cardEl.style.removeProperty('padding');
+      if(barcodeWrap){
+        barcodeWrap.style.removeProperty('height');
+        barcodeWrap.style.removeProperty('margin');
+      }
+      return;
+    }
+
+    const h = cardEl.clientHeight || (labelSettings.height * 96);
+    const hasBarcode = labelSettings.barcodePos !== 'hidden';
+
+    // One "scale" unit drives name/price/small text, padding, and the barcode
+    // height together, so nothing hogs fixed space while text shrinks around it.
+    let scale = h / 6;
+
+    const apply = ()=>{
+      cardEl.style.setProperty('--lbl-name-size', (scale * 1.05).toFixed(1) + 'px');
+      cardEl.style.setProperty('--lbl-price-size', (scale * 2.1).toFixed(1) + 'px');
+      cardEl.style.setProperty('--lbl-small-size', (scale * 0.62).toFixed(1) + 'px');
+      const padY = Math.max(4, scale * 0.35).toFixed(1);
+      const padX = Math.max(5, scale * 0.45).toFixed(1);
+      cardEl.style.padding = padY + 'px ' + padX + 'px';
+      if(barcodeWrap && hasBarcode){
+        barcodeWrap.style.height = Math.max(12, scale * 1.5).toFixed(1) + 'px';
+        barcodeWrap.style.margin = Math.max(2, scale * 0.25).toFixed(1) + 'px 0';
+      }
+    };
+    apply();
+
+    let guard = 0;
+    while(guard < 40 && (cardEl.scrollHeight > cardEl.clientHeight + 1 || (nameEl && nameEl.scrollWidth > nameEl.clientWidth + 1))){
+      scale *= 0.94;
+      apply();
+      guard++;
+    }
+    // Fine-tune upward in small steps to reclaim any leftover space.
+    guard = 0;
+    while(guard < 25){
+      const grown = scale * 1.025;
+      const prevScale = scale;
+      scale = grown;
+      apply();
+      if(cardEl.scrollHeight > cardEl.clientHeight + 1 || (nameEl && nameEl.scrollWidth > nameEl.clientWidth + 1)){
+        scale = prevScale;
+        apply();
+        break;
+      }
+      guard++;
+    }
+  }
+
+  document.getElementById('btnSaveLabelSettings').addEventListener('click', async ()=>{
+    labelSettings = {
+      font: document.getElementById('lsFont').value,
+      nameSize: parseInt(document.getElementById('lsNameSize').value, 10) || DEFAULT_LABEL_SETTINGS.nameSize,
+      priceSize: parseInt(document.getElementById('lsPriceSize').value, 10) || DEFAULT_LABEL_SETTINGS.priceSize,
+      smallSize: parseInt(document.getElementById('lsSmallSize').value, 10) || DEFAULT_LABEL_SETTINGS.smallSize,
+      align: document.getElementById('lsAlign').value,
+      barcodePos: document.getElementById('lsBarcodePos').value,
+      showUpc: document.getElementById('lsShowUpc').checked,
+      autoFit: document.getElementById('lsAutoFit').checked,
+      width: parseFloat(document.getElementById('lsWidth').value) || DEFAULT_LABEL_SETTINGS.width,
+      height: parseFloat(document.getElementById('lsHeight').value) || DEFAULT_LABEL_SETTINGS.height
+    };
+    applyLabelSettings();
+    await saveLabelSettingsToStorage();
+  });
+
+  document.getElementById('btnResetLabelSettings').addEventListener('click', async ()=>{
+    labelSettings = Object.assign({}, DEFAULT_LABEL_SETTINGS);
+    populateLabelSettingsForm();
+    applyLabelSettings();
+    await saveLabelSettingsToStorage();
+  });
+
+  // ---------- inventory change tracking ----------
+  async function loadChanges(){
+    try{
+      const res = await storage.get('pricebook:changes', false);
+      if(res && res.value) pendingChanges = JSON.parse(res.value);
+    }catch(e){ /* nothing saved yet */ }
+    renderChanges();
+  }
+
+  async function saveChanges(){
+    try{
+      await storage.set('pricebook:changes', JSON.stringify(pendingChanges), false);
+    }catch(e){ /* non-fatal */ }
+  }
+
+  function renderChanges(){
+    const listEl = document.getElementById('invChangesList');
+    const emptyEl = document.getElementById('invChangesEmpty');
+    const actionsEl = document.getElementById('invChangesActions');
+    const entries = Object.values(pendingChanges);
+
+    if(entries.length === 0){
+      emptyEl.style.display = 'block';
+      listEl.innerHTML = '';
+      actionsEl.style.display = 'none';
+      return;
+    }
+    emptyEl.style.display = 'none';
+    actionsEl.style.display = 'flex';
+
+    listEl.innerHTML = entries.map(c=>{
+      const actionLabel = c.action === 'added' ? 'New' : c.action === 'deleted' ? 'Deleted' : 'Updated';
+      const flagBits = [];
+      if(c.taxable) flagBits.push('Tax');
+      if(c.crv > 0) flagBits.push('CRV $' + Number(c.crv).toFixed(2));
+      const flags = flagBits.join(' &middot; ');
+      return '<div class="queue-item">' +
+        '<div class="qi-info"><div class="qi-name">'+escapeHtml(c.name || 'Unnamed Product')+
+        ' <span style="color:var(--text-dim);font-weight:400;">('+actionLabel+')</span></div>' +
+        '<div class="qi-meta">$'+(c.price || 0).toFixed(2)+(flags ? ' &middot; '+flags : '')+' &middot; '+escapeHtml(c.upc)+
+        (c.quantity != null ? ' &middot; qty '+c.quantity : '')+'</div></div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function dateStamp(){
+    const d = new Date();
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  }
+
+  function changesToRows(){
+    return Object.values(pendingChanges).map(c=>({
+      UPC: c.upc,
+      Name: c.name || '',
+      Price: c.price || 0,
+      Department: c.department || '',
+      Taxable: (c.taxable === null || c.taxable === undefined) ? '' : (c.taxable ? 'Y' : 'N'),
+      CRV: (c.crv === null || c.crv === undefined) ? '' : c.crv,
+      Quantity: c.quantity != null ? c.quantity : '',
+      Cost: c.cost != null ? c.cost : '',
+      CostBasis: c.costBasis || '',
+      PackSize: c.packSize != null ? c.packSize : '',
+      Action: c.action,
+      ChangedAt: c.changedAt
+    }));
+  }
+
+  function downloadBlob(content, filename, mime){
+    const blob = new Blob([content], {type: mime});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  }
+
+  document.getElementById('btnDownloadChangesCsv').addEventListener('click', ()=>{
+    const rows = changesToRows();
+    if(rows.length === 0) return;
+    const csv = Papa.unparse(rows);
+    downloadBlob(csv, 'inventory-changes-'+dateStamp()+'.csv', 'text/csv;charset=utf-8;');
+  });
+
+  document.getElementById('btnDownloadChangesXlsx').addEventListener('click', ()=>{
+    const rows = changesToRows();
+    if(rows.length === 0 || typeof XLSX === 'undefined') return;
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Changes');
+    const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+    downloadBlob(wbout, 'inventory-changes-'+dateStamp()+'.xlsx', 'application/octet-stream');
+  });
+
+  document.getElementById('btnClearChanges').addEventListener('click', async ()=>{
+    pendingChanges = {};
+    await saveChanges();
+    renderChanges();
+  });
+
+  // ---------- inventory save/delete (from Scan tab label panel) ----------
+  document.getElementById('btnSaveInventory').addEventListener('click', async ()=>{
+    const hintEl = document.getElementById('invSaveHint');
+    if(!currentProduct || !currentProduct.upc){
+      hintEl.textContent = 'Scan or look up an item first.';
+      return;
+    }
+    const upcRaw = currentProduct.upc;
+    const n = normalizeUpc(upcRaw);
+    if(!n){
+      hintEl.textContent = 'This item has no valid UPC to save.';
+      return;
+    }
+    const name = document.getElementById('editName').value.trim() || 'Unnamed Product';
+    const price = parseMoney(document.getElementById('editPrice').value);
+    const qty = parseInt(document.getElementById('editQty').value, 10);
+    const dept = document.getElementById('editDept').value.trim();
+    const cost = parseMoney(document.getElementById('editCost').value);
+    const costBasis = document.getElementById('editCostBasis').value === 'pack' ? 'pack' : 'unit';
+    const packSize = Math.max(1, parseInt(document.getElementById('editPackSize').value, 10) || 1);
+
+    const record = {
+      upc: upcRaw,
+      name: name,
+      price: isNaN(price) ? 0 : price,
+      department: dept,
+      taxable: taxOn,
+      crv: crvOn,
+      quantity: isNaN(qty) ? 0 : qty,
+      cost: isNaN(cost) ? 0 : cost,
+      costBasis: costBasis,
+      packSize: packSize
+    };
+
+    priceBookMap[n] = record;
+    await saveBook();
+    renderBookStatus();
+
+    pendingChanges[n] = Object.assign({}, record, {
+      action: currentProductIsNew ? 'added' : 'updated',
+      changedAt: new Date().toISOString()
+    });
+    await saveChanges();
+    renderChanges();
+
+    hintEl.textContent = (currentProductIsNew ? 'Added "' : 'Updated "') + name + '" in your price book. Logged in Pending Changes on the Price Book tab.';
+    currentProductIsNew = false;
+    currentProduct = Object.assign({}, record);
+    document.getElementById('btnDeleteInventory').style.display = 'inline-block';
+    document.getElementById('deleteInvConfirmRow').style.display = 'none';
+  });
+
+  document.getElementById('btnDeleteInventory').addEventListener('click', ()=>{
+    document.getElementById('deleteInvConfirmRow').style.display = 'flex';
+  });
+  document.getElementById('btnDeleteInvCancel').addEventListener('click', ()=>{
+    document.getElementById('deleteInvConfirmRow').style.display = 'none';
+  });
+  document.getElementById('btnDeleteInvConfirm').addEventListener('click', async ()=>{
+    const hintEl = document.getElementById('invSaveHint');
+    const n = normalizeUpc(currentProduct ? currentProduct.upc : '');
+    const existing = priceBookMap[n];
+    delete priceBookMap[n];
+    await saveBook();
+    renderBookStatus();
+    if(existing){
+      pendingChanges[n] = Object.assign({}, existing, {
+        action: 'deleted',
+        changedAt: new Date().toISOString()
+      });
+      await saveChanges();
+      renderChanges();
+    }
+    document.getElementById('deleteInvConfirmRow').style.display = 'none';
+    document.getElementById('btnDeleteInventory').style.display = 'none';
+    currentProductIsNew = true;
+    hintEl.textContent = 'Removed from your price book. Logged in Pending Changes on the Price Book tab.';
+  });
+
+  function renderBookStatus(){
+    const el = document.getElementById('bookStatus');
+    const count = Object.keys(priceBookMap).length;
+    const summaryEl = document.getElementById('bookSummaryText');
+    const startRow = document.getElementById('startBookRow');
+    const startHint = document.getElementById('startBookHint');
+
+    if(!bookMeta && count === 0){
+      el.className = 'book-status empty';
+      el.innerHTML = 'no price book loaded';
+      summaryEl.innerHTML = 'No price book loaded yet. Upload one below, or start a blank one.';
+      startRow.style.display = 'flex';
+      startHint.style.display = 'block';
+      renderBookList();
+      return;
+    }
+
+    startRow.style.display = 'none';
+    startHint.style.display = 'none';
+
+    if(count === 0){
+      el.className = 'book-status empty';
+      el.innerHTML = 'price book started &middot; 0 items';
+      summaryEl.innerHTML = 'Price book started, no items yet. Add items from the Scan tab.';
+    } else {
+      el.className = 'book-status';
+      el.innerHTML = '<b>' + count + '</b> products loaded' + (bookMeta && bookMeta.filename ? '<br>' + escapeHtml(bookMeta.filename) : '');
+      summaryEl.innerHTML = '<b>' + count + '</b> products from ' + (bookMeta ? escapeHtml(bookMeta.filename) : 'unknown file');
+    }
+    renderBookList();
+  }
+
+  // ---------- view / search price book ----------
+  function renderBookList(){
+    const listEl = document.getElementById('viewBookList');
+    const countEl = document.getElementById('viewBookCount');
+    if(!listEl) return;
+    const q = document.getElementById('viewSearchInput').value.trim().toLowerCase();
+    let items = Object.values(priceBookMap);
+    if(q){
+      items = items.filter(p =>
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.upc || '').toLowerCase().includes(q) ||
+        (p.department || '').toLowerCase().includes(q)
+      );
+    }
+    items.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+    const total = items.length;
+    const shown = items.slice(0, 200);
+
+    if(total === 0){
+      listEl.innerHTML = '';
+      countEl.textContent = Object.keys(priceBookMap).length === 0 ? '' : 'No matching items.';
+      return;
+    }
+
+    listEl.innerHTML = shown.map(p=>{
+      const crvAmt = resolveCrv(p);
+      const flags = [
+        resolveTaxable(p) ? 'Tax' : null,
+        crvAmt > 0 ? ('CRV $' + crvAmt.toFixed(2)) : null
+      ].filter(Boolean).join(' &middot; ');
+      return '<div class="queue-item" data-upc="'+escapeHtml(p.upc)+'" style="cursor:pointer;">' +
+        '<div class="qi-info"><div class="qi-name">'+escapeHtml(p.name || 'Unnamed Product')+'</div>' +
+        '<div class="qi-meta">$'+(p.price || 0).toFixed(2)+(flags ? ' &middot; '+flags : '')+
+        (p.department ? ' &middot; '+escapeHtml(p.department) : '')+' &middot; '+escapeHtml(p.upc)+'</div></div>' +
+      '</div>';
+    }).join('');
+
+    countEl.textContent = 'Showing ' + shown.length + ' of ' + total + ' item' + (total === 1 ? '' : 's') +
+      (total > 200 ? ' — refine your search to narrow further' : '') + '. Tap an item to edit it on the Scan tab.';
+  }
+
+  document.getElementById('viewSearchInput').addEventListener('input', renderBookList);
+
+  document.getElementById('viewBookList').addEventListener('click', e=>{
+    const item = e.target.closest('.queue-item');
+    if(!item) return;
+    const upc = item.dataset.upc;
+    document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
+    document.querySelector('nav.tabs button[data-view="scan"]').classList.add('active');
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-scan').classList.add('active');
+    stopScanner();
+    handleScannedCode(upc);
+  });
+
+  document.getElementById('btnStartNewBook').addEventListener('click', async ()=>{
+    bookMeta = {
+      filename: 'Manually created price book',
+      rowCount: 0,
+      uploadedAt: new Date().toISOString(),
+      defaultTaxable: true
+    };
+    await saveBook();
+    renderBookStatus();
+  });
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // ---------- UPC normalization ----------
+  function normalizeUpc(raw){
+    return String(raw || '').replace(/\D/g,'');
+  }
+  function upcVariants(code){
+    const n = normalizeUpc(code);
+    const variants = new Set([n]);
+    if(n.length === 12) variants.add('0'+n);
+    if(n.length === 13 && n[0] === '0') variants.add(n.slice(1));
+    if(n.length > 1) variants.add(n.replace(/^0+/,''));
+    return Array.from(variants).filter(Boolean);
+  }
+  function lookupUpc(code){
+    for(const v of upcVariants(code)){
+      if(priceBookMap[v]) return priceBookMap[v];
+    }
+    return null;
+  }
+
+  // ---------- boolean / flag parsing ----------
+  function parseFlag(val){
+    if(val === undefined || val === null || val === '') return null;
+    const s = String(val).trim().toLowerCase();
+    if(['y','yes','true','t','1'].includes(s)) return true;
+    if(['n','no','false','f','0'].includes(s)) return false;
+    const num = parseFloat(s);
+    if(!isNaN(num)) return num !== 0;
+    return null;
+  }
+
+  function parseMoney(val){
+    if(val === undefined || val === null || val === '') return NaN;
+    if(typeof val === 'number') return val;
+    let s = String(val).trim();
+    if(s === '') return NaN;
+    // handle accounting-style negatives like ($1.50)
+    let negative = false;
+    if(/^\(.*\)$/.test(s)){ negative = true; s = s.slice(1,-1); }
+    const cleaned = s.replace(/[^0-9.\-]/g, '');
+    if(cleaned === '' || cleaned === '-' || cleaned === '.') return NaN;
+    const num = parseFloat(cleaned);
+    if(isNaN(num)) return NaN;
+    return negative ? -Math.abs(num) : num;
+  }
+
+  function departmentMatchesCrv(department){
+    if(!department) return false;
+    const d = String(department).toLowerCase();
+    return crvKeywords.some(kw => kw.trim() && d.includes(kw.trim().toLowerCase()));
+  }
+
+  function resolveTaxable(product){
+    if(product.taxable !== null && product.taxable !== undefined) return product.taxable;
+    return bookMeta && bookMeta.defaultTaxable === false ? false : true;
+  }
+  function resolveCrv(product){
+    if(product.crv === true) return defaultCrvAmount;   // legacy boolean data
+    if(product.crv === false) return 0;                  // legacy boolean data
+    if(typeof product.crv === 'number') return product.crv;
+    return departmentMatchesCrv(product.department) ? defaultCrvAmount : 0;
+  }
+
+  // ---------- department management ----------
+  function normalizeDeptKey(name){ return String(name || '').trim().toLowerCase(); }
+
+  function addDepartment(name){
+    const trimmed = String(name || '').trim();
+    if(!trimmed) return false;
+    if(departments.some(d => normalizeDeptKey(d) === normalizeDeptKey(trimmed))) return false;
+    departments.push(trimmed);
+    departments.sort((a,b)=>a.localeCompare(b));
+    return true;
+  }
+
+  function removeDepartment(name){
+    departments = departments.filter(d => normalizeDeptKey(d) !== normalizeDeptKey(name));
+  }
+
+  function renderDepartmentList(){
+    const el = document.getElementById('deptList');
+    if(departments.length === 0){
+      el.innerHTML = '<div class="hint" style="margin-top:0;">No departments yet — add one above.</div>';
+    } else {
+      el.innerHTML = departments.map(d=>
+        '<div class="queue-item"><div class="qi-info"><div class="qi-name">'+escapeHtml(d)+'</div></div>'+
+        '<button type="button" class="qi-remove" data-dept="'+escapeHtml(d)+'" title="Remove">&times;</button></div>'
+      ).join('');
+    }
+    populateDeptSelect();
+  }
+
+  function populateDeptSelect(selectedValue){
+    const sel = document.getElementById('editDept');
+    if(!sel) return;
+    const current = selectedValue !== undefined ? selectedValue : sel.value;
+    let list = departments.slice();
+    if(current && !list.some(d => normalizeDeptKey(d) === normalizeDeptKey(current))){
+      list.push(current); // preserve a legacy/custom value not in the managed list
+    }
+    list.sort((a,b)=>a.localeCompare(b));
+    let opts = '<option value="">-- none --</option>';
+    opts += list.map(d => '<option value="'+escapeHtml(d)+'">'+escapeHtml(d)+'</option>').join('');
+    opts += '<option value="__new__">+ Add New Department...</option>';
+    sel.innerHTML = opts;
+    sel.value = current || '';
+  }
+
+  document.getElementById('btnAddDept').addEventListener('click', async ()=>{
+    const input = document.getElementById('newDeptInput');
+    if(addDepartment(input.value)){
+      input.value = '';
+      await saveBook();
+      renderDepartmentList();
+    }
+  });
+
+  document.getElementById('deptList').addEventListener('click', async e=>{
+    const btn = e.target.closest('.qi-remove');
+    if(!btn) return;
+    removeDepartment(btn.dataset.dept);
+    await saveBook();
+    renderDepartmentList();
+  });
+
+  document.getElementById('editDept').addEventListener('change', ()=>{
+    const sel = document.getElementById('editDept');
+    if(sel.value === '__new__'){
+      document.getElementById('newDeptRow').style.display = 'flex';
+      sel.value = '';
+    } else {
+      document.getElementById('newDeptRow').style.display = 'none';
+    }
+  });
+
+  document.getElementById('btnAddDeptInline').addEventListener('click', async ()=>{
+    const input = document.getElementById('newDeptInline');
+    const name = input.value.trim();
+    if(addDepartment(name)){
+      await saveBook();
+      renderDepartmentList();
+      populateDeptSelect(name);
+      input.value = '';
+      document.getElementById('newDeptRow').style.display = 'none';
+    }
+  });
+
+  // ---------- CRV amount management ----------
+  function normalizeCrvKey(v){ return Number(v).toFixed(2); }
+
+  function addCrvType(amount){
+    const num = parseFloat(amount);
+    if(isNaN(num) || num <= 0) return false;
+    const rounded = Math.round(num * 100) / 100;
+    if(crvTypes.some(v => normalizeCrvKey(v) === normalizeCrvKey(rounded))) return false;
+    crvTypes.push(rounded);
+    crvTypes.sort((a,b)=>a-b);
+    return true;
+  }
+
+  function removeCrvType(amount){
+    crvTypes = crvTypes.filter(v => normalizeCrvKey(v) !== normalizeCrvKey(amount));
+  }
+
+  function renderCrvTypeList(){
+    const el = document.getElementById('crvTypeList');
+    if(crvTypes.length === 0){
+      el.innerHTML = '<div class="hint" style="margin-top:0;">No CRV amounts yet — add one above.</div>';
+    } else {
+      el.innerHTML = crvTypes.map(v=>
+        '<div class="queue-item"><div class="qi-info"><div class="qi-name">$'+v.toFixed(2)+'</div></div>'+
+        '<button type="button" class="qi-remove" data-crv="'+v+'" title="Remove">&times;</button></div>'
+      ).join('');
+    }
+    populateCrvSelect();
+    populateDefaultCrvSelect();
+  }
+
+  function populateCrvSelect(selectedValue){
+    const sel = document.getElementById('editCrvType');
+    if(!sel) return;
+    const current = selectedValue !== undefined ? selectedValue : (parseFloat(sel.value) || 0);
+    let list = crvTypes.slice();
+    if(current > 0 && !list.some(v => normalizeCrvKey(v) === normalizeCrvKey(current))){
+      list.push(current);
+    }
+    list.sort((a,b)=>a-b);
+    let opts = '<option value="0">No CRV</option>';
+    opts += list.map(v => '<option value="'+v+'">$'+v.toFixed(2)+' CRV</option>').join('');
+    opts += '<option value="__new__">+ Add New Amount...</option>';
+    sel.innerHTML = opts;
+    sel.value = String(current);
+  }
+
+  function populateDefaultCrvSelect(){
+    const sel = document.getElementById('defaultCrvAmount');
+    if(!sel) return;
+    const list = crvTypes.slice().sort((a,b)=>a-b);
+    if(list.length === 0){
+      sel.innerHTML = '<option value="0.05">$0.05</option>';
+      defaultCrvAmount = 0.05;
+      return;
+    }
+    sel.innerHTML = list.map(v => '<option value="'+v+'">$'+v.toFixed(2)+'</option>').join('');
+    if(list.some(v => normalizeCrvKey(v) === normalizeCrvKey(defaultCrvAmount))){
+      sel.value = String(defaultCrvAmount);
+    } else {
+      defaultCrvAmount = list[0];
+      sel.value = String(defaultCrvAmount);
+    }
+  }
+
+  document.getElementById('btnAddCrvType').addEventListener('click', async ()=>{
+    const input = document.getElementById('newCrvTypeInput');
+    if(addCrvType(input.value)){
+      input.value = '';
+      await saveBook();
+      renderCrvTypeList();
+    }
+  });
+
+  document.getElementById('crvTypeList').addEventListener('click', async e=>{
+    const btn = e.target.closest('.qi-remove');
+    if(!btn) return;
+    removeCrvType(btn.dataset.crv);
+    await saveBook();
+    renderCrvTypeList();
+  });
+
+  document.getElementById('defaultCrvAmount').addEventListener('change', async ()=>{
+    defaultCrvAmount = parseFloat(document.getElementById('defaultCrvAmount').value) || 0.05;
+    await saveBook();
+  });
+
+  document.getElementById('editCrvType').addEventListener('change', ()=>{
+    const sel = document.getElementById('editCrvType');
+    if(sel.value === '__new__'){
+      document.getElementById('newCrvRow').style.display = 'flex';
+      sel.value = '0';
+    } else {
+      document.getElementById('newCrvRow').style.display = 'none';
+      crvOn = parseFloat(sel.value) || 0;
+      recomputeLabel();
+    }
+  });
+
+  document.getElementById('btnAddCrvInline').addEventListener('click', async ()=>{
+    const input = document.getElementById('newCrvInline');
+    const val = parseFloat(input.value);
+    if(addCrvType(val)){
+      const rounded = Math.round(val * 100) / 100;
+      await saveBook();
+      renderCrvTypeList();
+      populateCrvSelect(rounded);
+      crvOn = rounded;
+      input.value = '';
+      document.getElementById('newCrvRow').style.display = 'none';
+      recomputeLabel();
+    }
+  });
+
+  document.getElementById('editTaxable').addEventListener('change', ()=>{
+    taxOn = document.getElementById('editTaxable').value === 'yes';
+    recomputeLabel();
+  });
+
+  function plusText(tax, crv){
+    if(tax && crv) return 'Plus Tax & CRV';
+    if(tax) return 'Plus Tax';
+    if(crv) return 'Plus CRV';
+    return '';
+  }
+
+  // ---------- search ----------
+  function searchProducts(query){
+    const q = String(query || '').trim().toLowerCase();
+    if(q.length < 2) return [];
+    const matches = [];
+    for(const key in priceBookMap){
+      const p = priceBookMap[key];
+      const upc = (p.upc || '').toLowerCase();
+      const name = (p.name || '').toLowerCase();
+      if(upc.includes(q) || name.includes(q)){
+        matches.push(p);
+        if(matches.length >= 8) break;
+      }
+    }
+    return matches;
+  }
+
+  function wireSearchDropdown(inputEl, resultsEl, onSelect){
+    inputEl.addEventListener('input', ()=>{
+      const results = searchProducts(inputEl.value);
+      if(results.length === 0){
+        resultsEl.classList.add('hidden');
+        resultsEl.innerHTML = '';
+        return;
+      }
+      resultsEl.innerHTML = results.map(p =>
+        '<div class="search-result-item" data-upc="'+escapeHtml(p.upc)+'">' +
+          '<div><div class="sr-name">'+escapeHtml(p.name || '(no name)')+'</div><div class="sr-upc">'+escapeHtml(p.upc)+'</div></div>' +
+          '<div class="sr-price">$'+(p.price || 0).toFixed(2)+'</div>' +
+        '</div>'
+      ).join('');
+      resultsEl.classList.remove('hidden');
+    });
+    resultsEl.addEventListener('click', e=>{
+      const row = e.target.closest('.search-result-item');
+      if(!row) return;
+      const product = lookupUpc(row.dataset.upc);
+      resultsEl.classList.add('hidden');
+      resultsEl.innerHTML = '';
+      if(product) onSelect(product);
+    });
+    document.addEventListener('click', e=>{
+      if(e.target !== inputEl && !resultsEl.contains(e.target)){
+        resultsEl.classList.add('hidden');
+      }
+    });
+  }
+
+  wireSearchDropdown(document.getElementById('manualUpc'), document.getElementById('manualSearchResults'), product=>{
+    document.getElementById('manualUpc').value = '';
+    handleScannedCode(product.upc);
+  });
+  wireSearchDropdown(document.getElementById('queueSearchInput'), document.getElementById('queueSearchResults'), product=>{
+    document.getElementById('queueSearchInput').value = '';
+    addToQueueFromProduct(product, 1);
+  });
+
+  // ---------- print queue ----------
+  function addToQueueFromProduct(product, qty){
+    const tax = resolveTaxable(product);
+    const crv = resolveCrv(product);
+    const existing = printQueue.find(q => q.upc === product.upc && q.taxOn === tax && q.crvOn === crv && q.price === (product.price || 0));
+    if(existing){
+      existing.qty += qty;
+    } else {
+      printQueue.push({
+        upc: product.upc,
+        name: product.name || 'Unnamed Product',
+        price: product.price || 0,
+        taxOn: tax,
+        crvOn: crv,
+        cost: product.cost || 0,
+        costBasis: product.costBasis === 'pack' ? 'pack' : 'unit',
+        packSize: product.packSize && product.packSize > 1 ? product.packSize : 1,
+        qty: qty
+      });
+    }
+    renderQueue();
+  }
+
+  function renderQueue(){
+    const listEl = document.getElementById('queueList');
+    const emptyEl = document.getElementById('queueEmpty');
+    const actionsRow = document.getElementById('queueActionsRow');
+    const badge = document.getElementById('queueBadge');
+    const totalQty = printQueue.reduce((s,q)=>s+q.qty, 0);
+
+    if(printQueue.length === 0){
+      emptyEl.style.display = 'block';
+      listEl.innerHTML = '';
+      actionsRow.style.display = 'none';
+      badge.style.display = 'none';
+      return;
+    }
+    emptyEl.style.display = 'none';
+    actionsRow.style.display = 'flex';
+    badge.style.display = 'inline-block';
+    badge.textContent = totalQty;
+
+    listEl.innerHTML = printQueue.map((q, idx)=>{
+      const flagBits = [];
+      if(q.taxOn) flagBits.push('Tax');
+      if(q.crvOn > 0) flagBits.push('CRV $' + q.crvOn.toFixed(2));
+      const flags = flagBits.join(' &middot; ');
+      return '<div class="queue-item" data-idx="'+idx+'">' +
+        '<div class="qi-info"><div class="qi-name">'+escapeHtml(q.name)+'</div>' +
+        '<div class="qi-meta">$'+q.price.toFixed(2)+(flags ? ' &middot; '+flags : '')+' &middot; '+escapeHtml(q.upc)+'</div></div>' +
+        '<div class="qty-stepper">' +
+          '<button type="button" class="qi-dec">&minus;</button>' +
+          '<span>'+q.qty+'</span>' +
+          '<button type="button" class="qi-inc">+</button>' +
+        '</div>' +
+        '<button type="button" class="qi-remove" title="Remove">&times;</button>' +
+      '</div>';
+    }).join('');
+  }
+
+  document.getElementById('queueList').addEventListener('click', e=>{
+    const item = e.target.closest('.queue-item');
+    if(!item) return;
+    const idx = parseInt(item.dataset.idx, 10);
+    if(e.target.classList.contains('qi-inc')){
+      printQueue[idx].qty++;
+    } else if(e.target.classList.contains('qi-dec')){
+      printQueue[idx].qty = Math.max(1, printQueue[idx].qty - 1);
+    } else if(e.target.classList.contains('qi-remove')){
+      printQueue.splice(idx, 1);
+    } else {
+      return;
+    }
+    renderQueue();
+  });
+
+  document.getElementById('btnClearQueue').addEventListener('click', ()=>{
+    printQueue = [];
+    renderQueue();
+  });
+
+  document.getElementById('btnAddQueue').addEventListener('click', ()=>{
+    const qty = Math.max(1, parseInt(document.getElementById('queueQty').value, 10) || 1);
+    const name = document.getElementById('editName').value || 'Unnamed Product';
+    const price = parseFloat(document.getElementById('editPrice').value) || 0;
+    const cost = parseFloat(document.getElementById('editCost').value) || 0;
+    const costBasis = document.getElementById('editCostBasis').value === 'pack' ? 'pack' : 'unit';
+    const packSize = Math.max(1, parseInt(document.getElementById('editPackSize').value, 10) || 1);
+    const upc = currentProduct ? (currentProduct.upc || '') : '';
+    const existing = printQueue.find(q => q.upc === upc && q.name === name && q.price === price && q.taxOn === taxOn && q.crvOn === crvOn);
+    if(existing){
+      existing.qty += qty;
+    } else {
+      printQueue.push({upc, name, price, taxOn, crvOn, cost, costBasis, packSize, qty});
+    }
+    renderQueue();
+    document.getElementById('queueQty').value = 1;
+  });
+
+  function buildQueueLabelHtml(item, labelId, svgId){
+    const plusStr = plusText(item.taxOn, item.crvOn);
+    const parts = {
+      name: '<div class="label-name">'+escapeHtml(item.name)+'</div>',
+      upc: labelSettings.showUpc ? '<div class="label-upc">'+escapeHtml(item.upc)+'</div>' : '',
+      barcode: labelSettings.barcodePos === 'hidden' ? '' : '<div class="label-barcode"><svg id="'+svgId+'"></svg></div>',
+      price: '<div class="label-price">$'+item.price.toFixed(2)+'</div>',
+      plus: plusStr ? '<div class="label-plus">'+plusStr+'</div>' : ''
+    };
+    let order;
+    if(labelSettings.barcodePos === 'top') order = ['barcode','name','upc','price','plus'];
+    else if(labelSettings.barcodePos === 'bottom') order = ['name','upc','price','plus','barcode'];
+    else order = ['name','upc','barcode','price','plus'];
+    return '<div class="label-card queue-print-label" id="'+labelId+'">' + order.map(k=>parts[k]).join('') + '</div>';
+  }
+
+  function buildQueuePrintArea(){
+    const area = document.getElementById('queuePrintArea');
+    let html = '';
+    let counter = 0;
+    const jobs = [];
+    printQueue.forEach(q=>{
+      for(let i=0; i<q.qty; i++){
+        const labelId = 'qlabel'+counter;
+        const svgId = 'qbc'+counter;
+        html += buildQueueLabelHtml(q, labelId, svgId);
+        jobs.push({labelId:labelId, svgId:svgId, code:q.upc});
+        counter++;
+      }
+    });
+    area.innerHTML = html;
+    jobs.forEach(job=>{
+      const cardEl = document.getElementById(job.labelId);
+      if(labelSettings.barcodePos !== 'hidden'){
+        const svg = document.getElementById(job.svgId);
+        renderBarcodeInto(svg, job.code, cardEl);
+      }
+      autoFitCard(cardEl);
+    });
+  }
+
+  document.getElementById('btnPrintQueue').addEventListener('click', ()=>{
+    if(printQueue.length === 0) return;
+    buildQueuePrintArea();
+    document.body.classList.add('printing-queue');
+    window.print();
+  });
+  window.addEventListener('afterprint', ()=>{
+    document.body.classList.remove('printing-queue');
+  });
+
+
+  document.querySelectorAll('nav.tabs button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+      document.getElementById('view-'+btn.dataset.view).classList.add('active');
+      if(btn.dataset.view !== 'scan') stopScanner();
+    });
+  });
+
+  // ---------- CRV keyword settings ----------
+  document.getElementById('btnSaveKeywords').addEventListener('click', async ()=>{
+    const raw = document.getElementById('crvKeywords').value;
+    crvKeywords = raw.split(',').map(s=>s.trim()).filter(Boolean);
+    if(crvKeywords.length === 0) crvKeywords = DEFAULT_CRV_KEYWORDS.slice();
+    await saveBook();
+    document.getElementById('crvKeywords').value = crvKeywords.join(', ');
+  });
+
+  // ---------- file upload & parsing ----------
+  const uploadZone = document.getElementById('uploadZone');
+  const fileInput = document.getElementById('fileInput');
+  uploadZone.addEventListener('dragover', e=>{e.preventDefault();});
+  uploadZone.addEventListener('drop', e=>{
+    e.preventDefault();
+    if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', e=>{
+    if(e.target.files.length) handleFile(e.target.files[0]);
+  });
+
+  function handleFile(file){
+    const hint = document.getElementById('uploadHint');
+    hint.textContent = 'Reading ' + file.name + '...';
+    const name = file.name.toLowerCase();
+    if(name.endsWith('.csv')){
+      const reader = new FileReader();
+      reader.onload = ()=>{
+        const parsed = Papa.parse(reader.result, {header:true, skipEmptyLines:true});
+        if(parsed.errors && parsed.errors.length){
+          hint.textContent = 'Some rows had issues, but we\'ll use what parsed correctly.';
+        }
+        startMapping(parsed.meta.fields, parsed.data, file.name);
+      };
+      reader.onerror = ()=>{ hint.textContent = 'Could not read that file.'; };
+      reader.readAsText(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = ()=>{
+        try{
+          const wb = XLSX.read(reader.result, {type:'array'});
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
+          const headers = rows.length ? Object.keys(rows[0]) : [];
+          startMapping(headers, rows, file.name);
+        }catch(err){
+          hint.textContent = 'Could not read that spreadsheet: ' + err.message;
+        }
+      };
+      reader.onerror = ()=>{ hint.textContent = 'Could not read that file.'; };
+      reader.readAsArrayBuffer(file);
+    }
+  }
+
+  function guessColumn(headers, keywords){
+    for(const h of headers){
+      const lower = h.toLowerCase();
+      for(const kw of keywords){
+        if(lower.includes(kw)) return h;
+      }
+    }
+    return '';
+  }
+
+  function startMapping(headers, rows, filename){
+    document.getElementById('uploadHint').textContent = '';
+    pendingParse = {headers: headers || [], rows: rows || [], filename};
+    const guess = {
+      upc:        guessColumn(headers, ['upc','barcode','ean','sku','code']) || headers[0] || '',
+      name:       guessColumn(headers, ['name','description','product','item']) || headers[0] || '',
+      price:      guessColumn(headers, ['price','retail','msrp']) || headers[0] || '',
+      department: guessColumn(headers, ['department','dept','category','section']),
+      taxable:    guessColumn(headers, ['taxable','tax']),
+      crv:        guessColumn(headers, ['crv','deposit','redemption']),
+      quantity:   guessColumn(headers, ['quantity','qty','stock','on hand','onhand','count']),
+      cost:       guessColumn(headers, ['cost','wholesale']),
+      packsize:   guessColumn(headers, ['pack size','packsize','case size','casesize','units per pack','pack qty','packqty']),
+    };
+    renderMappingTable(headers, guess);
+    renderPreviewRows(rows.slice(0,5));
+    document.getElementById('mappingPanel').style.display = 'block';
+  }
+
+  function renderMappingTable(headers, guess){
+    const fields = [
+      ['upc','UPC / Barcode', true],
+      ['name','Product Name', true],
+      ['price','Price', true],
+      ['department','Department', false],
+      ['taxable','Taxable Flag', false],
+      ['crv','CRV Flag', false],
+      ['quantity','Quantity', false],
+      ['cost','Cost', false],
+      ['packsize','Units per Pack (if Cost is per pack)', false],
+    ];
+    let html = '<tr><th>Field</th><th>Column in your file</th></tr>';
+    fields.forEach(([key,label,required])=>{
+      html += '<tr><td>'+label+(required?'':' <span style="color:var(--text-dim);">(optional)</span>')+'</td><td><select data-field="'+key+'">';
+      if(!required) html += '<option value="">-- none --</option>';
+      headers.forEach(h=>{
+        const sel = h === guess[key] ? 'selected' : '';
+        html += '<option value="'+escapeHtml(h)+'" '+sel+'>'+escapeHtml(h)+'</option>';
+      });
+      html += '</select></td></tr>';
+    });
+    document.getElementById('mapTable').innerHTML = html;
+  }
+
+  function renderPreviewRows(rows){
+    const el = document.getElementById('previewRows');
+    el.innerHTML = rows.map(r => '<div>' + escapeHtml(JSON.stringify(r)) + '</div>').join('');
+  }
+
+  document.getElementById('btnCancelMap').addEventListener('click', ()=>{
+    document.getElementById('mappingPanel').style.display = 'none';
+    pendingParse = null;
+    fileInput.value = '';
+  });
+
+  document.getElementById('btnConfirmMap').addEventListener('click', async ()=>{
+    if(!pendingParse) return;
+    const selects = document.querySelectorAll('#mapTable select');
+    const colMap = {};
+    selects.forEach(s => colMap[s.dataset.field] = s.value);
+    const newMap = {};
+    let count = 0;
+    let zeroPriceCount = 0;
+    const discoveredDepts = new Set();
+    const discoveredCrv = new Set();
+    pendingParse.rows.forEach(row=>{
+      const rawUpc = row[colMap.upc];
+      const n = normalizeUpc(rawUpc);
+      if(!n) return;
+      const priceVal = parseMoney(row[colMap.price]);
+      const dept = colMap.department ? String(row[colMap.department] || '').trim() : '';
+      const taxableVal = colMap.taxable ? parseFlag(row[colMap.taxable]) : null;
+      const crvValRaw = colMap.crv ? parseMoney(row[colMap.crv]) : NaN;
+      const crvVal = isNaN(crvValRaw) ? null : Math.round(crvValRaw * 100) / 100;
+      const qtyVal = colMap.quantity ? parseMoney(row[colMap.quantity]) : NaN;
+      const costVal = colMap.cost ? parseMoney(row[colMap.cost]) : NaN;
+      const packSizeVal = colMap.packsize ? parseInt(String(row[colMap.packsize]).replace(/[^0-9]/g,''), 10) : NaN;
+      const finalPrice = isNaN(priceVal) ? 0 : priceVal;
+      if(finalPrice === 0) zeroPriceCount++;
+      const finalPackSize = (!isNaN(packSizeVal) && packSizeVal > 1) ? packSizeVal : 1;
+      if(dept) discoveredDepts.add(dept);
+      if(crvVal && crvVal > 0) discoveredCrv.add(crvVal);
+      newMap[n] = {
+        upc: String(rawUpc).trim(),
+        name: row[colMap.name] != null ? String(row[colMap.name]).trim() : '',
+        price: finalPrice,
+        department: dept,
+        taxable: taxableVal,
+        crv: crvVal,
+        quantity: isNaN(qtyVal) ? 0 : qtyVal,
+        cost: isNaN(costVal) ? 0 : costVal,
+        costBasis: finalPackSize > 1 ? 'pack' : 'unit',
+        packSize: finalPackSize,
+      };
+      count++;
+    });
+    priceBookMap = newMap;
+    discoveredDepts.forEach(d => addDepartment(d));
+    discoveredCrv.forEach(v => addCrvType(v));
+    bookMeta = {
+      filename: pendingParse.filename,
+      rowCount: count,
+      uploadedAt: new Date().toISOString(),
+      defaultTaxable: document.getElementById('mapDefaultTaxable').value === 'true'
+    };
+    await saveBook();
+    renderBookStatus();
+    renderDepartmentList();
+    renderCrvTypeList();
+    document.getElementById('mappingPanel').style.display = 'none';
+    pendingParse = null;
+    fileInput.value = '';
+    if(zeroPriceCount > 0){
+      document.getElementById('uploadHint').textContent = 'Saved ' + count + ' products, but ' + zeroPriceCount + ' of them came in at $0.00 — double check that "Price" is mapped to the right column and that the cells contain plain numbers.';
+    } else {
+      document.getElementById('uploadHint').textContent = '';
+    }
+  });
+
+  document.getElementById('btnClearBook').addEventListener('click', ()=>{
+    document.getElementById('clearBookRow').style.display = 'none';
+    document.getElementById('clearBookConfirmRow').style.display = 'flex';
+  });
+  document.getElementById('btnClearBookCancel').addEventListener('click', ()=>{
+    document.getElementById('clearBookConfirmRow').style.display = 'none';
+    document.getElementById('clearBookRow').style.display = 'flex';
+  });
+  document.getElementById('btnClearBookConfirm').addEventListener('click', async ()=>{
+    await clearBook();
+    document.getElementById('clearBookConfirmRow').style.display = 'none';
+    document.getElementById('clearBookRow').style.display = 'flex';
+  });
+
+  // ---------- scanning ----------
+  const scanFrame = document.getElementById('scanFrame');
+  const scanPlaceholder = document.getElementById('scanPlaceholder');
+  const btnStart = document.getElementById('btnStartScan');
+  const btnStop = document.getElementById('btnStopScan');
+  const scanHint = document.getElementById('scanHint');
+
+  btnStart.addEventListener('click', startScanner);
+  btnStop.addEventListener('click', stopScanner);
+
+  // ---------- beep on scan ----------
+  let audioCtx = null;
+  function unlockAudio(){
+    try{
+      if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if(audioCtx.state === 'suspended') audioCtx.resume();
+    }catch(e){ /* audio not available, ignore */ }
+  }
+  function playBeep(){
+    if(!audioCtx) return;
+    try{
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = 1568;
+      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.1);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.1);
+    }catch(e){ /* ignore */ }
+  }
+
+  // ---------- native BarcodeDetector path (faster/more accurate where supported — mainly Chrome/Android) ----------
+  let nativeStream = null;
+  let nativeVideoEl = null;
+  let nativeRAF = null;
+  let nativeDetector = null;
+
+  async function startNativeScanner(){
+    nativeDetector = new BarcodeDetector({formats:['upc_a','upc_e','ean_13','ean_8','code_128']});
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    nativeStream = stream;
+    const video = document.createElement('video');
+    video.setAttribute('playsinline', '');
+    video.setAttribute('muted', '');
+    video.muted = true;
+    video.style.cssText = 'width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;';
+    video.srcObject = stream;
+    scanFrame.insertBefore(video, scanFrame.firstChild);
+    nativeVideoEl = video;
+    await video.play();
+
+    quaggaActive = true;
+    btnStart.disabled = true;
+    btnStop.disabled = false;
+    scanHint.textContent = 'Point the camera at a barcode.';
+    addOverlay();
+
+    const scanLoop = async ()=>{
+      if(!nativeVideoEl) return;
+      try{
+        const barcodes = await nativeDetector.detect(nativeVideoEl);
+        if(barcodes && barcodes.length){
+          const now = Date.now();
+          if(now - lastDetected > 1500){
+            lastDetected = now;
+            playBeep();
+            handleScannedCode(barcodes[0].rawValue);
+          }
+        }
+      }catch(e){ /* transient detection errors are fine to ignore */ }
+      if(nativeVideoEl) nativeRAF = requestAnimationFrame(scanLoop);
+    };
+    nativeRAF = requestAnimationFrame(scanLoop);
+  }
+
+  function stopNativeScanner(){
+    if(nativeRAF) cancelAnimationFrame(nativeRAF);
+    nativeRAF = null;
+    if(nativeStream){
+      nativeStream.getTracks().forEach(t=>t.stop());
+      nativeStream = null;
+    }
+    if(nativeVideoEl){
+      nativeVideoEl.remove();
+      nativeVideoEl = null;
+    }
+  }
+
+  function startScanner(){
+    if(!window.isSecureContext){
+      scanHint.innerHTML = 'Camera access needs a secure connection (https://, or localhost). This page isn\'t loaded over one, so the browser won\'t allow it here. Use manual entry below instead.';
+      return;
+    }
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      scanHint.innerHTML = 'This browser/window won\'t allow camera access on this page (often true inside an embedded preview). Try opening the app in its own browser tab, or use manual entry below.';
+      return;
+    }
+    unlockAudio();
+    scanPlaceholder.style.display = 'none';
+    scanHint.textContent = 'Requesting camera access...';
+
+    if('BarcodeDetector' in window){
+      startNativeScanner().catch(err=>{
+        stopNativeScanner();
+        // Fall back to the JS-based scanner if the native path fails for any reason.
+        startQuaggaScanner();
+      });
+      return;
+    }
+    startQuaggaScanner();
+  }
+
+  function startQuaggaScanner(){
+    if(typeof Quagga === 'undefined'){
+      scanHint.textContent = 'Camera scanning library failed to load. Use manual entry below instead.';
+      scanPlaceholder.style.display = 'flex';
+      return;
+    }
+    Quagga.init({
+      inputStream:{
+        type:'LiveStream',
+        target: scanFrame,
+        constraints:{ facingMode:'environment' }
+      },
+      decoder:{
+        readers:['upc_reader','upc_e_reader','ean_reader','ean_8_reader','code_128_reader']
+      },
+      locate:true
+    }, function(err){
+      if(err){
+        let reason = err.name || 'unknown error';
+        let tip = 'Try opening the app in its own browser tab, or use manual entry below.';
+        if(reason === 'NotAllowedError'){
+          tip = 'Camera permission was denied. Check your browser\'s site settings (or the permission prompt) and allow camera access, then tap Start Camera again.';
+        } else if(reason === 'NotFoundError'){
+          tip = 'No camera was found on this device. Use manual entry below instead.';
+        } else if(reason === 'NotReadableError'){
+          tip = 'Another app or browser tab may already be using the camera. Close it and try again, or use manual entry below.';
+        }
+        scanHint.innerHTML = 'Could not access the camera (' + reason + '). ' + tip;
+        scanPlaceholder.style.display = 'flex';
+        return;
+      }
+      Quagga.start();
+      quaggaActive = true;
+      btnStart.disabled = true;
+      btnStop.disabled = false;
+      scanHint.textContent = 'Point the camera at a barcode.';
+      addOverlay();
+    });
+
+    Quagga.onDetected(onBarcodeDetected);
+  }
+
+  function addOverlay(){
+    if(scanFrame.querySelector('.laser')) return;
+    const laser = document.createElement('div');
+    laser.className = 'laser';
+    const corners = document.createElement('div');
+    corners.className = 'frame-corners';
+    corners.innerHTML = '<span></span><span></span><span></span><span></span>';
+    scanFrame.appendChild(laser);
+    scanFrame.appendChild(corners);
+  }
+
+  let lastDetected = 0;
+  function onBarcodeDetected(result){
+    const now = Date.now();
+    if(now - lastDetected < 1500) return;
+    lastDetected = now;
+    const code = result && result.codeResult && result.codeResult.code;
+    if(!code) return;
+    playBeep();
+    handleScannedCode(code);
+  }
+
+  function stopScanner(){
+    if(quaggaActive){
+      if(typeof Quagga !== 'undefined'){
+        try{ Quagga.stop(); }catch(e){}
+      }
+      stopNativeScanner();
+    }
+    quaggaActive = false;
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+    const laser = scanFrame.querySelector('.laser');
+    const corners = scanFrame.querySelector('.frame-corners');
+    if(laser) laser.remove();
+    if(corners) corners.remove();
+    scanPlaceholder.style.display = 'flex';
+  }
+
+  document.getElementById('btnManualLookup').addEventListener('click', ()=>{
+    const val = document.getElementById('manualUpc').value.trim();
+    if(val) handleScannedCode(val);
+  });
+  document.getElementById('manualUpc').addEventListener('keydown', e=>{
+    if(e.key === 'Enter'){
+      const val = e.target.value.trim();
+      if(val) handleScannedCode(val);
+    }
+  });
+
+  function handleScannedCode(code){
+    const product = lookupUpc(code);
+    document.getElementById('notFoundPanel').style.display = 'none';
+    document.getElementById('labelPanel').style.display = 'none';
+    if(product){
+      showLabel(product, true);
+    } else {
+      document.getElementById('nfUpc').textContent = normalizeUpc(code);
+      document.getElementById('notFoundPanel').style.display = 'block';
+      currentProduct = {upc: normalizeUpc(code), name:'', price:0, department:'', taxable:null, crv:null, quantity:0, cost:0, costBasis:'unit', packSize:1};
+    }
+  }
+
+  document.getElementById('btnManualCreate').addEventListener('click', ()=>{
+    document.getElementById('notFoundPanel').style.display = 'none';
+    showLabel(currentProduct, false);
+  });
+
+  document.getElementById('btnRescan').addEventListener('click', ()=>{
+    document.getElementById('labelPanel').style.display = 'none';
+    document.getElementById('manualUpc').value = '';
+    document.getElementById('manualUpc').focus();
+  });
+
+  // ---------- label rendering ----------
+  function showLabel(product, existed){
+    document.getElementById('labelPanel').style.display = 'block';
+
+    currentProduct = Object.assign({}, product);
+    currentProductIsNew = !existed;
+    document.getElementById('editName').value = product.name || '';
+    document.getElementById('editPrice').value = product.price || 0;
+    document.getElementById('editQty').value = product.quantity != null ? product.quantity : 0;
+    populateDeptSelect(product.department || '');
+    document.getElementById('newDeptRow').style.display = 'none';
+    document.getElementById('editCost').value = product.cost || 0;
+    document.getElementById('editCostBasis').value = product.costBasis === 'pack' ? 'pack' : 'unit';
+    document.getElementById('editPackSize').value = product.packSize && product.packSize > 1 ? product.packSize : 1;
+    document.getElementById('editPackSizeRow').style.display = document.getElementById('editCostBasis').value === 'pack' ? 'block' : 'none';
+    document.getElementById('lblUpc').textContent = product.upc || '';
+    renderBarcodeSvg(product.upc || '');
+
+    document.getElementById('invSaveHint').textContent = '';
+    document.getElementById('deleteInvConfirmRow').style.display = 'none';
+    document.getElementById('btnDeleteInventory').style.display = existed ? 'inline-block' : 'none';
+
+    taxOn = resolveTaxable(product);
+    crvOn = resolveCrv(product);
+    document.getElementById('editTaxable').value = taxOn ? 'yes' : 'no';
+    populateCrvSelect(crvOn);
+    document.getElementById('newCrvRow').style.display = 'none';
+    recomputeLabel();
+  }
+
+  function renderBarcodeSvg(code){
+    const svg = document.getElementById('lblBarcodeSvg');
+    const card = document.getElementById('labelPrintArea');
+    renderBarcodeInto(svg, code, card);
+  }
+
+  document.getElementById('editCostBasis').addEventListener('change', ()=>{
+    document.getElementById('editPackSizeRow').style.display =
+      document.getElementById('editCostBasis').value === 'pack' ? 'block' : 'none';
+    recomputeLabel();
+  });
+
+  function unitCost(cost, basis, packSize){
+    if(basis === 'pack' && packSize > 1) return cost / packSize;
+    return cost;
+  }
+
+  function updateBackOfficeStats(){
+    const price = parseFloat(document.getElementById('editPrice').value) || 0;
+    const cost = parseFloat(document.getElementById('editCost').value) || 0;
+    const basis = document.getElementById('editCostBasis').value;
+    const packSize = Math.max(1, parseInt(document.getElementById('editPackSize').value, 10) || 1);
+    const qty = parseFloat(document.getElementById('editQty').value) || 0;
+
+    const uCost = unitCost(cost, basis, packSize);
+    const totalCost = uCost * qty;
+    const marginDollar = price - uCost;
+    const marginPct = price > 0 ? (marginDollar / price * 100) : 0;
+
+    document.getElementById('statTotalCost').textContent = '$' + totalCost.toFixed(2) + ' (' + qty + ' on hand @ $' + uCost.toFixed(2) + ' ea)';
+    const marginEl = document.getElementById('statMargin');
+    marginEl.textContent = '$' + marginDollar.toFixed(2) + ' (' + marginPct.toFixed(1) + '%)';
+    marginEl.style.color = marginDollar < 0 ? 'var(--red)' : 'var(--text)';
+  }
+
+  function recomputeLabel(){
+    const name = document.getElementById('editName').value || 'Unnamed Product';
+    const price = parseFloat(document.getElementById('editPrice').value) || 0;
+
+    document.getElementById('lblName').textContent = name;
+    document.getElementById('lblPrice').textContent = '$' + price.toFixed(2);
+
+    const plusEl = document.getElementById('lblPlus');
+    const text = plusText(taxOn, crvOn);
+    if(text){
+      plusEl.textContent = text;
+      plusEl.classList.remove('hidden');
+    } else {
+      plusEl.classList.add('hidden');
+    }
+
+    updateBackOfficeStats();
+    autoFitCard(document.getElementById('labelPrintArea'));
+  }
+
+  ['editName','editPrice','editCost','editPackSize','editQty'].forEach(id=>{
+    document.getElementById(id).addEventListener('input', recomputeLabel);
+  });
+
+  document.getElementById('btnPrint').addEventListener('click', ()=>{
+    window.print();
+  });
+
+  // ---------- init ----------
+  loadBook();
+  loadLabelSettings();
+  loadChanges();
+})();
+</script>
+</body>
+</html>
